@@ -1,0 +1,110 @@
+#!/bin/bash
+
+#
+# CUSTOM PI ZEro configurator
+#
+
+usage() {
+	echo "Usage: sudo $(basename $0) -d device [-e] [-f] [-s] [-w]"
+	echo
+	echo "  -d device   target block device (eg. /dev/sda)"
+	echo "  -e          enable USB ethernet gadget support"
+	echo "  -f          automatically unmount partions on target"
+	echo "  -s          enable SSH"
+	echo "  -w          enable wifi"
+	echo
+}
+
+[ "$(id -u)" -ne 0 ] && usage && exit 1
+
+env -i
+
+# Parse the command line
+while getopts "d:efsw" opt; do
+	case "$opt" in
+		d)
+			DEV=$(basename $OPTARG)
+			;;
+		e)
+			USB_ETH=1
+			;;
+		f)
+			FORCE=1
+			;;
+		s)
+			SSH=1
+			;;
+		w)
+			WPA=1
+			;;
+		*)
+			usage
+			exit 1
+			;;
+	esac
+done
+
+# Check for mandatory command line options
+[ -z $DEV ] && usage && exit 1
+
+# Create a mount point for boot partition
+TMPDIR=$(mktemp -d)
+
+# Check that we're dealing with a valid block device
+[ "$(lsblk | awk '{print $1}' | grep "^${DEV}$")" != "${DEV}" ] && echo "Invalid block device." && exit 1
+
+# Partitions on target need to be unmounted before proceeding
+if [ "$(df | awk '{print $1}' | grep "^/dev/${DEV}")" ]; then
+	if [ -z $FORCE ]; then
+		echo -e "Umount partitions on block device '/dev/${DEV}'. \n(Or use '-f' command line option.)"
+		exit 1
+	else
+		echo -n "Automatically umounting partition(s)..."
+		for partition in $(df | awk '{print $1}' | grep "^/dev/${DEV}"); do
+			echo -n " $partition"
+			umount $partition
+		done
+		echo -e ".\n"
+	fi
+fi
+
+# Mount the partition images in ${TMPDIR}
+mount -t ext4 /dev/${DEV}2 ${TMPDIR}
+mount -t vfat /dev/${DEV}1 ${TMPDIR}/boot
+
+# Enable USB ethernet gadget support
+if [ ! -z $USB_ETH ]; then
+	echo -n "Enabling USB ethernet gadget support... "
+	cat >> ${TMPDIR}/boot/config.txt <<EOF
+
+# Enable gadget support
+dtoverlay=dwc2
+EOF
+
+	sed -i~ 's/rootwait/rootwait modules-load=dwc2,g_ether/' ${TMPDIR}/boot/cmdline.txt
+	echo "Done."
+fi
+
+# Enable SSH
+[ ! -z $SSH ] && echo -n "Enabling SSH... " && touch ${TMPDIR}/boot/ssh && echo "Done."
+
+# Enable wifi
+if [ ! -z ${WPA} ]; then
+	echo "Wifi setup..."
+	read -p "Enter SSID name: " SSID
+	read -s -p "Enter passphrase: " PASS
+
+	cat > ${TMPDIR}/boot/wpa_supplicant.conf <<EOF
+country=gb
+$(cat ${TMPDIR}/etc/wpa_supplicant/wpa_supplicant.conf)
+
+$(wpa_passphrase "$SSID" "$PASS")
+EOF
+fi
+
+# Unmount and tidy up
+umount /dev/${DEV}1
+umount /dev/${DEV}2
+rmdir ${TMPDIR}
+
+echo -e "\nAll processes complete. Eject media."
