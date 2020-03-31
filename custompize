@@ -81,7 +81,12 @@ if [ ! -z $USB_ETH ]; then
 dtoverlay=dwc2
 EOF
 
-	sed -i~ 's/rootwait/rootwait modules-load=dwc2,g_ether/' ${TMPDIR}/boot/cmdline.txt
+    cat >> ${TMPDIR}/etc/modules <<EOF
+	
+# Enable gadget support
+dwc2
+g_ether
+EOF
 	echo "Done."
 fi
 
