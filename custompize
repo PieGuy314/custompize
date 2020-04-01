@@ -5,11 +5,12 @@
 #
 
 usage() {
-	echo "Usage: sudo $(basename $0) -d device [-e] [-f] [-s] [-w]"
+	echo "Usage: sudo $(basename $0) -d device [-e] [-f] [-h hostname] [-s] [-w]"
 	echo
 	echo "  -d device   target block device (eg. /dev/sda)"
 	echo "  -e          enable USB ethernet gadget support"
 	echo "  -f          automatically unmount partions on target"
+	echo "  -h hostname set new hostname"
 	echo "  -s          enable SSH"
 	echo "  -w          enable wifi"
 	echo
@@ -20,7 +21,7 @@ usage() {
 env -i
 
 # Parse the command line
-while getopts "d:efsw" opt; do
+while getopts "d:efh:sw" opt; do
 	case "$opt" in
 		d)
 			DEV=$(basename $OPTARG)
@@ -30,6 +31,9 @@ while getopts "d:efsw" opt; do
 			;;
 		f)
 			FORCE=1
+			;;
+		h)
+			HOST=$OPTARG
 			;;
 		s)
 			SSH=1
@@ -81,12 +85,20 @@ if [ ! -z $USB_ETH ]; then
 dtoverlay=dwc2
 EOF
 
-    cat >> ${TMPDIR}/etc/modules <<EOF
-	
+	cat >> ${TMPDIR}/etc/modules <<EOF
 # Enable gadget support
 dwc2
 g_ether
 EOF
+	echo "Done."
+fi
+
+# Change hostname
+if [ ! -z ${HOST} ]; then
+	echo -n "Changing hostname to '$HOST'... "
+	for file in /etc/hosts /etc/hostname; do
+		sed -i "s/raspberrypi/${HOST}/g" ${TMPDIR}${file}
+	done
 	echo "Done."
 fi
 
